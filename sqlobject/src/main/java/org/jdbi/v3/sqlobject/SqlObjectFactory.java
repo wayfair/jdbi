@@ -13,12 +13,22 @@
  */
 package org.jdbi.v3.sqlobject;
 
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.implementation.MethodDelegation;
+import net.bytebuddy.implementation.bind.annotation.AllArguments;
+import net.bytebuddy.implementation.bind.annotation.Origin;
+import net.bytebuddy.implementation.bind.annotation.RuntimeType;
+import net.bytebuddy.implementation.bind.annotation.This;
+import net.bytebuddy.matcher.ElementMatchers;
+import org.jdbi.v3.core.Handle;
+import org.jdbi.v3.core.extension.ExtensionFactory;
+import org.jdbi.v3.sqlobject.mixins.GetHandle;
+import org.jdbi.v3.sqlobject.mixins.Transactional;
+
 import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -28,25 +38,12 @@ import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-import net.sf.cglib.proxy.Enhancer;
-import net.sf.cglib.proxy.Factory;
-import net.sf.cglib.proxy.MethodInterceptor;
-
-import org.jdbi.v3.core.Handle;
-import org.jdbi.v3.core.extension.ExtensionFactory;
-import org.jdbi.v3.sqlobject.mixins.GetHandle;
-import org.jdbi.v3.sqlobject.mixins.Transactional;
-
 public enum SqlObjectFactory implements ExtensionFactory<SqlObjectConfig> {
     INSTANCE;
 
-    private static final MethodInterceptor NO_OP = (proxy, method, args, methodProxy) -> null;
-
+    private final ByteBuddy byteBuddy = new ByteBuddy();
     private final Map<Method, Handler> mixinHandlers = new HashMap<>();
     private final ConcurrentMap<Class<?>, Map<Method, Handler>> handlersCache = new ConcurrentHashMap<>();
-    private final ConcurrentMap<Class<?>, Factory> factories = new ConcurrentHashMap<>();
-    private final ConcurrentMap<Class<? extends SqlObjectConfigurerFactory>, SqlObjectConfigurerFactory>
-            configurerFactories = new ConcurrentHashMap<>();
 
     SqlObjectFactory() {
         mixinHandlers.putAll(TransactionalHelper.handlers());
@@ -75,32 +72,24 @@ public enum SqlObjectFactory implements ExtensionFactory<SqlObjectConfig> {
      * object, such as transaction status, closing it, etc, will apply to both the object and the handle.
      *
      * @param extensionType the type of sql object to create
-     * @param handle the Handle instance to attach ths sql object to
+     * @param handle        the Handle instance to attach ths sql object to
      * @return the new sql object bound to this handle
      */
     @Override
     public <E> E attach(Class<E> extensionType, SqlObjectConfig config, Supplier<Handle> handle) {
-        Factory f = factories.computeIfAbsent(extensionType, type -> {
-            Enhancer e = new Enhancer();
-            e.setClassLoader(extensionType.getClassLoader());
-
-            List<Class<?>> interfaces = new ArrayList<>();
-            if (extensionType.isInterface()) {
-                interfaces.add(extensionType);
-            }
-            else {
-                e.setSuperclass(extensionType);
-            }
-            e.setInterfaces(interfaces.toArray(new Class[interfaces.size()]));
-            e.setCallback(NO_OP);
-
-            return (Factory) e.create();
-        });
-
-
         Map<Method, Handler> handlers = buildHandlersFor(extensionType);
-        MethodInterceptor interceptor = createMethodInterceptor(extensionType, config, handlers, handle);
-        return extensionType.cast(f.newInstance(interceptor));
+        try {
+            return extensionType.cast(byteBuddy
+                    .subclass(extensionType)
+                    .method(ElementMatchers.any())
+                    .intercept(MethodDelegation.to(new GeneralInterceptor(handle, config, handlers, extensionType)))
+                    .make()
+                    .load(extensionType.getClassLoader())
+                    .getLoaded()
+                    .newInstance());
+        } catch (InstantiationException | IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private Map<Method, Handler> buildHandlersFor(Class<?> sqlObjectType) {
@@ -118,11 +107,9 @@ public enum SqlObjectFactory implements ExtensionFactory<SqlObjectConfig> {
                     HandlerFactory factory = buildFactory(factoryClass.get());
                     Handler handler = factory.buildHandler(sqlObjectType, method);
                     handlers.put(method, handler);
-                }
-                else if (mixinHandlers.containsKey(method)) {
+                } else if (mixinHandlers.containsKey(method)) {
                     handlers.put(method, mixinHandlers.get(method));
-                }
-                else {
+                } else {
                     handlers.put(method, new PassThroughHandler());
                 }
             }
@@ -146,16 +133,30 @@ public enum SqlObjectFactory implements ExtensionFactory<SqlObjectConfig> {
         return factory;
     }
 
-    private MethodInterceptor createMethodInterceptor(Class<?> sqlObjectType,
-                                                      SqlObjectConfig baseConfig,
-                                                      Map<Method, Handler> handlers,
-                                                      Supplier<Handle> handle) {
-        return (proxy, method, args, methodProxy) -> {
+    static class GeneralInterceptor {
+
+        private static final ConcurrentMap<Class<? extends SqlObjectConfigurerFactory>, SqlObjectConfigurerFactory>
+                CONFIGURER_FACTORIES = new ConcurrentHashMap<>();
+
+        private Supplier<Handle> handle;
+        private SqlObjectConfig baseConfig;
+        private Map<Method, Handler> handlers;
+        private Class<?> sqlObjectType;
+
+        private GeneralInterceptor(Supplier<Handle> handle, SqlObjectConfig baseConfig, Map<Method, Handler> handlers, Class<?> sqlObjectType) {
+            this.handle = handle;
+            this.baseConfig = baseConfig;
+            this.handlers = handlers;
+            this.sqlObjectType = sqlObjectType;
+        }
+
+        @RuntimeType
+        Object invoke(@This Object proxy, @AllArguments Object[] args, @Origin Method method) throws Exception {
             Handler handler = handlers.get(method);
 
             // If there is no handler, pretend we are just an Object and don't open a connection (Issue #82)
             if (handler == null) {
-                return methodProxy.invokeSuper(proxy, args);
+                return null;
             }
 
             SqlObjectConfig config = baseConfig.createCopy();
@@ -165,27 +166,27 @@ public enum SqlObjectFactory implements ExtensionFactory<SqlObjectConfig> {
                     factory.createForMethod(annotation, sqlObjectType, method).accept(config));
 
             return handler.invoke(handle, config, proxy, args, method);
-        };
-    }
+        }
 
-    private void forEachConfigurerFactory(AnnotatedElement element, BiConsumer<SqlObjectConfigurerFactory, Annotation> consumer) {
-        Stream.of(element.getAnnotations())
-                .filter(a -> a.annotationType().isAnnotationPresent(SqlObjectConfiguringAnnotation.class))
-                .forEach(a -> {
-                    SqlObjectConfiguringAnnotation meta = a.annotationType()
-                            .getAnnotation(SqlObjectConfiguringAnnotation.class);
+        private void forEachConfigurerFactory(AnnotatedElement element, BiConsumer<SqlObjectConfigurerFactory, Annotation> consumer) {
+            Stream.of(element.getAnnotations())
+                    .filter(a -> a.annotationType().isAnnotationPresent(SqlObjectConfiguringAnnotation.class))
+                    .forEach(a -> {
+                        SqlObjectConfiguringAnnotation meta = a.annotationType()
+                                .getAnnotation(SqlObjectConfiguringAnnotation.class);
 
-                    consumer.accept(getConfigurerFactory(meta.value()), a);
-                });
-    }
+                        consumer.accept(getConfigurerFactory(meta.value()), a);
+                    });
+        }
 
-    private SqlObjectConfigurerFactory getConfigurerFactory(Class<? extends SqlObjectConfigurerFactory> factoryClass) {
-        return configurerFactories.computeIfAbsent(factoryClass, c -> {
-            try {
-                return c.newInstance();
-            } catch (InstantiationException | IllegalAccessException e) {
-                throw new IllegalStateException("Unable to instantiate configurer factory class " + factoryClass, e);
-            }
-        });
+        private SqlObjectConfigurerFactory getConfigurerFactory(Class<? extends SqlObjectConfigurerFactory> factoryClass) {
+            return CONFIGURER_FACTORIES.computeIfAbsent(factoryClass, c -> {
+                try {
+                    return c.newInstance();
+                } catch (InstantiationException | IllegalAccessException e) {
+                    throw new IllegalStateException("Unable to instantiate configurer factory class " + factoryClass, e);
+                }
+            });
+        }
     }
 }
