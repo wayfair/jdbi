@@ -30,7 +30,7 @@ import org.jdbi.v3.core.mapper.RowMapper;
 import org.jdbi.v3.sqlobject.customizers.UseRowMapper;
 import org.jdbi.v3.core.util.GenericTypes;
 
-abstract class ResultReturnThing
+abstract class ResultReturner
 {
     public Object map(Method method, Query<?> q, Supplier<Handle> handle)
     {
@@ -49,7 +49,7 @@ abstract class ResultReturnThing
         }
     }
 
-    static ResultReturnThing forMethod(Class<?> extensionType, Method method)
+    static ResultReturner forMethod(Class<?> extensionType, Method method)
     {
         Type returnType = GenericTypes.resolveType(method.getGenericReturnType(), extensionType);
         Class<?> returnClass = GenericTypes.getErasedType(returnType);
@@ -60,16 +60,16 @@ abstract class ResultReturnThing
                     method.getName()));
         }
         else if (ResultBearing.class.isAssignableFrom(returnClass)) {
-            return new ResultBearingResultReturnThing(returnType);
+            return new ResultBearingResultReturner(returnType);
         }
         else if (Stream.class.isAssignableFrom(returnClass)) {
-            return new StreamReturnThing(returnType);
+            return new StreamReturner(returnType);
         }
         else if (Iterator.class.isAssignableFrom(returnClass)) {
-            return new IteratorResultReturnThing(returnType);
+            return new IteratorResultReturner(returnType);
         }
         else {
-            return new DefaultResultReturnThing(method, returnType);
+            return new DefaultResultReturner(method, returnType);
         }
     }
 
@@ -77,11 +77,11 @@ abstract class ResultReturnThing
 
     protected abstract Type elementType(StatementContext ctx);
 
-    static class StreamReturnThing extends ResultReturnThing
+    static class StreamReturner extends ResultReturner
     {
         private final Type elementType;
 
-        StreamReturnThing(Type returnType)
+        StreamReturner(Type returnType)
         {
             elementType = GenericTypes.findGenericParameter(returnType, Stream.class)
                     .orElseThrow(() -> new IllegalStateException(
@@ -99,11 +99,11 @@ abstract class ResultReturnThing
         }
     }
 
-    static class DefaultResultReturnThing extends ResultReturnThing
+    static class DefaultResultReturner extends ResultReturner
     {
         private final Type returnType;
 
-        DefaultResultReturnThing(Method method, Type returnType)
+        DefaultResultReturner(Method method, Type returnType)
         {
             this.returnType = returnType;
         }
@@ -129,12 +129,12 @@ abstract class ResultReturnThing
         }
     }
 
-    static class ResultBearingResultReturnThing extends ResultReturnThing
+    static class ResultBearingResultReturner extends ResultReturner
     {
 
         private final Type elementType;
 
-        ResultBearingResultReturnThing(Type returnType)
+        ResultBearingResultReturner(Type returnType)
         {
             // extract T from Query<T>
             elementType = GenericTypes.findGenericParameter(returnType, Query.class)
@@ -155,11 +155,11 @@ abstract class ResultReturnThing
         }
     }
 
-    static class IteratorResultReturnThing extends ResultReturnThing
+    static class IteratorResultReturner extends ResultReturner
     {
         private final Type elementType;
 
-        IteratorResultReturnThing(Type returnType)
+        IteratorResultReturner(Type returnType)
         {
             this.elementType = GenericTypes.findGenericParameter(returnType, Iterator.class)
                     .orElseThrow(() -> new IllegalStateException(

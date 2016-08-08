@@ -43,7 +43,7 @@ class UpdateHandler extends CustomizingStatementHandler
         }
         if (isGetGeneratedKeys) {
 
-            final ResultReturnThing magic = ResultReturnThing.forMethod(sqlObjectType, method);
+            final ResultReturner magic = ResultReturner.forMethod(sqlObjectType, method);
             final GetGeneratedKeys ggk = method.getAnnotation(GetGeneratedKeys.class);
             final RowMapper<?> mapper;
             if (DefaultGeneratedKeyMapper.class.equals(ggk.value())) {
