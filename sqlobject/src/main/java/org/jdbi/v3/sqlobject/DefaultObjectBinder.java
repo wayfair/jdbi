@@ -54,6 +54,9 @@ class DefaultObjectBinder implements Binder<Bind, Object>
             else if (Iterator.class.isAssignableFrom(erasedType)) {
                 type = GenericTypes.findGenericParameter(type, Iterator.class).get();
             }
+            else if (erasedType.isArray()) {
+                type = erasedType.getComponentType();
+            }
         }
 
         q.bindByType(index, arg, type);
