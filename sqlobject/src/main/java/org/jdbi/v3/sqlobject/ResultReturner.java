@@ -13,15 +13,20 @@
  */
 package org.jdbi.v3.sqlobject;
 
+import java.lang.reflect.Array;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.Iterator;
+import java.util.List;
+import java.util.function.Function;
 import java.util.stream.Collector;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.jdbi.v3.core.Query;
 import org.jdbi.v3.core.ResultBearing;
 import org.jdbi.v3.core.ResultIterator;
+import org.jdbi.v3.core.SqlStatement;
 import org.jdbi.v3.core.StatementContext;
 import org.jdbi.v3.core.exception.UnableToCreateStatementException;
 import org.jdbi.v3.core.mapper.RowMapper;
@@ -47,6 +52,24 @@ abstract class ResultReturner
         }
     }
 
+    static ResultReturner forOptionalReturn(Class<?> extensionType, Method method)
+    {
+        if (method.getReturnType() == void.class) {
+            return new ResultReturner() {
+                @Override
+                protected Object result(ResultBearing<?> q) {
+                    q.collect(Collectors.counting()); // Make sure to consume the result
+                    return null;
+                }
+                @Override
+                protected Type elementType(StatementContext ctx) {
+                    return null;
+                }
+            };
+        }
+        return forMethod(extensionType, method);
+    }
+
     static ResultReturner forMethod(Class<?> extensionType, Method method)
     {
         Type returnType = GenericTypes.resolveType(method.getGenericReturnType(), extensionType);
@@ -66,6 +89,9 @@ abstract class ResultReturner
         else if (Iterator.class.isAssignableFrom(returnClass)) {
             return new IteratorResultReturner(returnType);
         }
+        else if (returnClass.isArray()) {
+            return new ArrayResultReturner(returnClass.getComponentType());
+        }
         else {
             return new DefaultResultReturner(method, returnType);
         }
@@ -83,6 +109,11 @@ abstract class ResultReturner
                 throw new UnableToCreateStatementException("Unable to instantiate row mapper for statement", e, null);
             }
         }
+    }
+
+    <T extends SqlStatement<?>> Function<T, Object> bindExecutor(Function<T, ResultBearing<?>> executor)
+    {
+        return q -> result(executor.apply(q));
     }
 
     protected abstract Object result(ResultBearing<?> q);
@@ -124,11 +155,9 @@ abstract class ResultReturner
         @SuppressWarnings({ "unchecked", "rawtypes" })
         protected Object result(ResultBearing<?> q)
         {
-            if (q instanceof Query) {
-                Collector collector = ((Query)q).getContext().findCollectorFor(returnType).orElse(null);
-                if (collector != null) {
-                    return q.collect(collector);
-                }
+            Collector collector = ((SqlStatement<?>)q).getContext().findCollectorFor(returnType).orElse(null);
+            if (collector != null) {
+                return q.collect(collector);
             }
             return q.findFirst().orElse(null);
         }
@@ -245,6 +274,30 @@ abstract class ResultReturner
         protected Type elementType(StatementContext ctx)
         {
             return elementType;
+        }
+    }
+
+    static class ArrayResultReturner extends ResultReturner
+    {
+        private final Class<?> componentType;
+
+        ArrayResultReturner(Class<?> componentType) {
+            this.componentType = componentType;
+        }
+
+        @Override
+        protected Object result(ResultBearing<?> q) {
+            List<?> list = q.list();
+            Object result = Array.newInstance(componentType, list.size());
+            for (int i = 0; i < list.size(); i++) {
+                Array.set(result, i, list.get(i));
+            }
+            return result;
+        }
+
+        @Override
+        protected Type elementType(StatementContext ctx) {
+            return componentType;
         }
     }
 }

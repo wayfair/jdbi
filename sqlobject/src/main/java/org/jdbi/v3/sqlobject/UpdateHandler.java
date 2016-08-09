@@ -45,13 +45,13 @@ class UpdateHandler extends CustomizingStatementHandler
             final GetGeneratedKeys ggk = method.getAnnotation(GetGeneratedKeys.class);
             final RowMapper<?> mapper = ResultReturner.rowMapperFor(ggk, returnType);
 
-            this.returner = update -> {
+            this.returner = (update, handle) -> {
                 GeneratedKeys<?> o = update.executeAndReturnGeneratedKeys(mapper, ggk.columnName());
-                return magic.result(o);
+                return magic.result(o, handle);
             };
         }
         else {
-            this.returner = update -> update.execute();
+            this.returner = (update, handle) -> update.execute();
         }
     }
 
@@ -63,13 +63,13 @@ class UpdateHandler extends CustomizingStatementHandler
         populateSqlObjectData(update.getContext());
         applyCustomizers(update, args);
         applyBinders(update, args);
-        return this.returner.value(update);
+        return this.returner.value(update, handle);
     }
 
 
     private interface Returner
     {
-        Object value(Update update);
+        Object value(Update update, Supplier<Handle> handle);
     }
 
     private boolean returnTypeIsInvalid(Class<?> type) {
