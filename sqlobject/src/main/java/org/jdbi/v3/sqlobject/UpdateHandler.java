@@ -15,10 +15,12 @@ package org.jdbi.v3.sqlobject;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
+import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 import org.jdbi.v3.core.GeneratedKeys;
 import org.jdbi.v3.core.Handle;
+import org.jdbi.v3.core.StatementContext;
 import org.jdbi.v3.core.Update;
 import org.jdbi.v3.core.mapper.RowMapper;
 import org.jdbi.v3.core.util.GenericTypes;
@@ -27,7 +29,7 @@ import org.jdbi.v3.sqlobject.exceptions.UnableToCreateSqlObjectException;
 class UpdateHandler extends CustomizingStatementHandler
 {
     private final Class<?> sqlObjectType;
-    private final Returner returner;
+    private final BiFunction<Update, StatementContext, Object> returner;
 
     UpdateHandler(Class<?> sqlObjectType, Method method)
     {
@@ -45,13 +47,13 @@ class UpdateHandler extends CustomizingStatementHandler
             final GetGeneratedKeys ggk = method.getAnnotation(GetGeneratedKeys.class);
             final RowMapper<?> mapper = ResultReturner.rowMapperFor(ggk, returnType);
 
-            this.returner = (update, handle) -> {
+            this.returner = (update, ctx) -> {
                 GeneratedKeys<?> o = update.executeAndReturnGeneratedKeys(mapper, ggk.columnName());
-                return magic.result(o, handle);
+                return magic.result(o, ctx);
             };
         }
         else {
-            this.returner = (update, handle) -> update.execute();
+            this.returner = (update, ctx) -> update.execute();
         }
     }
 
@@ -63,13 +65,7 @@ class UpdateHandler extends CustomizingStatementHandler
         populateSqlObjectData(update.getContext());
         applyCustomizers(update, args);
         applyBinders(update, args);
-        return this.returner.value(update, handle);
-    }
-
-
-    private interface Returner
-    {
-        Object value(Update update, Supplier<Handle> handle);
+        return this.returner.apply(update, update.getContext());
     }
 
     private boolean returnTypeIsInvalid(Class<?> type) {

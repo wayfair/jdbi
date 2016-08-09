@@ -18,6 +18,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.Iterator;
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
@@ -45,10 +46,10 @@ abstract class ResultReturner
             catch (Exception e) {
                 throw new UnableToCreateStatementException("unable to access mapper", e, null);
             }
-            return result(q.map(mapper));
+            return result(q.map(mapper), q.getContext());
         }
         else {
-            return result(q.mapTo(elementType(q.getContext())));
+            return result(q.mapTo(elementType(q.getContext())), q.getContext());
         }
     }
 
@@ -57,7 +58,7 @@ abstract class ResultReturner
         if (method.getReturnType() == void.class) {
             return new ResultReturner() {
                 @Override
-                protected Object result(ResultBearing<?> q) {
+                protected Object result(ResultBearing<?> q, StatementContext ctx) {
                     q.collect(Collectors.counting()); // Make sure to consume the result
                     return null;
                 }
@@ -111,12 +112,12 @@ abstract class ResultReturner
         }
     }
 
-    <T extends SqlStatement<?>> Function<T, Object> bindExecutor(Function<T, ResultBearing<?>> executor)
+    <T extends SqlStatement<?>> BiFunction<T, StatementContext, Object> bindExecutor(Function<T, ResultBearing<?>> executor)
     {
-        return q -> result(executor.apply(q));
+        return (q, ctx) -> result(executor.apply(q), ctx);
     }
 
-    protected abstract Object result(ResultBearing<?> q);
+    protected abstract Object result(ResultBearing<?> q, StatementContext ctx);
 
     protected abstract Type elementType(StatementContext ctx);
 
@@ -132,7 +133,7 @@ abstract class ResultReturner
         }
 
         @Override
-        protected Object result(ResultBearing<?> q) {
+        protected Object result(ResultBearing<?> q, StatementContext ctx) {
             return q.stream();
         }
 
@@ -153,9 +154,9 @@ abstract class ResultReturner
 
         @Override
         @SuppressWarnings({ "unchecked", "rawtypes" })
-        protected Object result(ResultBearing<?> q)
+        protected Object result(ResultBearing<?> q, StatementContext ctx)
         {
-            Collector collector = ((SqlStatement<?>)q).getContext().findCollectorFor(returnType).orElse(null);
+            Collector collector = ctx.findCollectorFor(returnType).orElse(null);
             if (collector != null) {
                 return q.collect(collector);
             }
@@ -184,7 +185,7 @@ abstract class ResultReturner
         }
 
         @Override
-        protected Object result(ResultBearing<?> q)
+        protected Object result(ResultBearing<?> q, StatementContext ctx)
         {
             return q;
         }
@@ -208,7 +209,7 @@ abstract class ResultReturner
         }
 
         @Override
-        protected Object result(ResultBearing<?> q)
+        protected Object result(ResultBearing<?> q, StatementContext ctx)
         {
             final ResultIterator<?> itty = q.iterator();
 
@@ -286,7 +287,7 @@ abstract class ResultReturner
         }
 
         @Override
-        protected Object result(ResultBearing<?> q) {
+        protected Object result(ResultBearing<?> q, StatementContext ctx) {
             List<?> list = q.list();
             Object result = Array.newInstance(componentType, list.size());
             for (int i = 0; i < list.size(); i++) {

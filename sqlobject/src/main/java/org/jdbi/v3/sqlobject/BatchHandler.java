@@ -25,6 +25,7 @@ import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import org.jdbi.v3.core.Batch;
 import org.jdbi.v3.core.Handle;
 import org.jdbi.v3.core.PreparedBatch;
 import org.jdbi.v3.core.ResultBearing;
@@ -108,9 +109,9 @@ class BatchHandler extends CustomizingStatementHandler
     @Override
     public Object invoke(Supplier<Handle> h, SqlObjectConfig config, Object target, Object[] args, Method method)
     {
+        final Handle handle = h.get();
         final ResultBearing<?> bearer = () ->
             new ResultIterator<Object>() {
-                final Handle handle = h.get();
                 final String sql = config.getSqlLocator().locate(sqlObjectType, method);
                 final int chunkSize = batchChunkSize.call(args);
                 final Iterator<Object[]> batchArgs = zipArgs(args);
@@ -155,7 +156,9 @@ class BatchHandler extends CustomizingStatementHandler
                 }
             };
 
-        return magic.result(bearer);
+        Batch b = handle.createBatch(); // TODO: this is a pretty ugly way to fake a statement context
+        // and it doesn't get statement customizers
+        return magic.result(bearer, b.getContext());
     }
 
     private Iterator<Object[]> zipArgs(Object[] args) {
