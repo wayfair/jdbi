@@ -24,7 +24,6 @@ import org.skife.jdbi.v2.tweak.StatementLocator;
 import org.skife.jdbi.v2.tweak.StatementRewriter;
 
 import java.io.Closeable;
-import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
@@ -311,9 +310,4 @@ public interface Handle extends Closeable
     void registerArgumentFactory(ArgumentFactory argumentFactory);
 
     void registerContainerFactory(ContainerFactory<?> factory);
-
-    void setSqlObjectContext(Class<?> sqlObjectType, Method sqlObjectMethod);
-
-    Class<?> getSqlObjectType();
-    Method getSqlObjectMethod();
 }

@@ -93,7 +93,7 @@ class BasicHandle implements Handle
                                               this,
                                               statementBuilder,
                                               sql,
-                                              new ConcreteStatementContext(globalStatementAttributes, queryRegistry, sqlObjectType, sqlObjectMethod),
+                                              new ConcreteStatementContext(globalStatementAttributes, queryRegistry),
                                               log,
                                               timingCollector,
                                               Collections.<StatementCustomizer>emptyList(),
@@ -261,7 +261,7 @@ class BasicHandle implements Handle
                           statementRewriter,
                           statementBuilder,
                           sql,
-                          new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry), sqlObjectType, sqlObjectMethod),
+                          new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry)),
                           log,
                           timingCollector,
                           foreman,
@@ -276,7 +276,7 @@ class BasicHandle implements Handle
                         statementRewriter,
                         statementBuilder,
                         sql,
-                        new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry), sqlObjectType, sqlObjectMethod),
+                        new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry)),
                         log,
                         timingCollector,
                         Collections.<StatementCustomizer>emptyList(),
@@ -309,7 +309,7 @@ class BasicHandle implements Handle
                                  this,
                                  statementBuilder,
                                  sql,
-                                 new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry), sqlObjectType, sqlObjectMethod),
+                                 new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry)),
                                  log,
                                  timingCollector,
                                  Collections.<StatementCustomizer>emptyList(),
@@ -322,7 +322,7 @@ class BasicHandle implements Handle
     {
         return new Batch(this.statementRewriter,
                          this.connection,
-                         new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry), sqlObjectType, sqlObjectMethod),
+                         new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry)),
                          log,
                          timingCollector,
                          foreman.createChild());
@@ -410,7 +410,7 @@ class BasicHandle implements Handle
     @Override
     public Script createScript(String name)
     {
-        return new Script(this, statementLocator, name, new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry), sqlObjectType, sqlObjectMethod));
+        return new Script(this, statementLocator, name, new ConcreteStatementContext(globalStatementAttributes, new MappingRegistry(mappingRegistry)));
     }
 
     @Override
@@ -489,21 +489,5 @@ class BasicHandle implements Handle
     public void registerContainerFactory(ContainerFactory<?> factory)
     {
         this.containerFactoryRegistry.register(factory);
-    }
-
-    @Override
-    public void setSqlObjectContext(Class<?> sqlObjectType, Method sqlObjectMethod) {
-        this.sqlObjectType = sqlObjectType;
-        this.sqlObjectMethod = sqlObjectMethod;
-    }
-
-    @Override
-    public Class<?> getSqlObjectType() {
-        return sqlObjectType;
-    }
-
-    @Override
-    public Method getSqlObjectMethod() {
-        return sqlObjectMethod;
     }
 }

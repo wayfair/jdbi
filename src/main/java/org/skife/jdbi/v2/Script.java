@@ -18,10 +18,8 @@ import org.antlr.runtime.Token;
 import org.skife.jdbi.v2.exceptions.UnableToExecuteStatementException;
 import org.skife.jdbi.v2.tweak.StatementLocator;
 
-import java.util.regex.Pattern;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Represents a number of SQL statements which will be executed in a batch statement.
@@ -40,6 +38,10 @@ public class Script
         this.locator = locator;
         this.name = name;
         this.statementContext = statementContext;
+    }
+
+    public StatementContext getContext() {
+        return statementContext;
     }
 
     /**

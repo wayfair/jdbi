@@ -13,19 +13,6 @@
  */
 package org.skife.jdbi.v2.sqlobject;
 
-import com.fasterxml.classmate.MemberResolver;
-import com.fasterxml.classmate.ResolvedType;
-import com.fasterxml.classmate.ResolvedTypeWithMembers;
-import com.fasterxml.classmate.TypeResolver;
-import com.fasterxml.classmate.members.ResolvedMethod;
-import net.sf.cglib.proxy.Callback;
-import net.sf.cglib.proxy.CallbackFilter;
-import net.sf.cglib.proxy.Enhancer;
-import net.sf.cglib.proxy.Factory;
-import net.sf.cglib.proxy.MethodInterceptor;
-import net.sf.cglib.proxy.MethodProxy;
-import net.sf.cglib.proxy.NoOp;
-
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -34,6 +21,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+
+import com.fasterxml.classmate.MemberResolver;
+import com.fasterxml.classmate.ResolvedType;
+import com.fasterxml.classmate.ResolvedTypeWithMembers;
+import com.fasterxml.classmate.TypeResolver;
+import com.fasterxml.classmate.members.ResolvedMethod;
+
+import net.sf.cglib.proxy.Callback;
+import net.sf.cglib.proxy.CallbackFilter;
+import net.sf.cglib.proxy.Enhancer;
+import net.sf.cglib.proxy.Factory;
+import net.sf.cglib.proxy.MethodInterceptor;
+import net.sf.cglib.proxy.MethodProxy;
+import net.sf.cglib.proxy.NoOp;
 
 class SqlObject
 {
@@ -144,38 +145,42 @@ class SqlObject
 
         final Map<Method, Handler> handlers = new HashMap<Method, Handler>();
         for (final ResolvedMethod method : d.getMemberMethods()) {
-            final Method raw_method = method.getRawMember();
+            final Method rawMethod = method.getRawMember();
 
-            if (raw_method.isAnnotationPresent(SqlQuery.class)) {
-                handlers.put(raw_method, new QueryHandler(sqlObjectType, method, ResultReturnThing.forType(method)));
+            Handler handler = new PassThroughHandler(rawMethod);
+
+            if (rawMethod.isAnnotationPresent(SqlQuery.class)) {
+                handler = new QueryHandler(sqlObjectType, method, ResultReturnThing.forType(method));
             }
-            else if (raw_method.isAnnotationPresent(SqlUpdate.class)) {
-                handlers.put(raw_method, new UpdateHandler(sqlObjectType, method));
+            else if (rawMethod.isAnnotationPresent(SqlUpdate.class)) {
+                handler = new UpdateHandler(sqlObjectType, method);
             }
-            else if (raw_method.isAnnotationPresent(SqlBatch.class)) {
-                handlers.put(raw_method, new BatchHandler(sqlObjectType, method));
+            else if (rawMethod.isAnnotationPresent(SqlBatch.class)) {
+                handler = new BatchHandler(sqlObjectType, method);
             }
-            else if (raw_method.isAnnotationPresent(SqlCall.class)) {
-                handlers.put(raw_method, new CallHandler(sqlObjectType, method));
+            else if (rawMethod.isAnnotationPresent(SqlCall.class)) {
+                handler = new CallHandler(sqlObjectType, method);
             }
-            else if(raw_method.isAnnotationPresent(CreateSqlObject.class)) {
-                handlers.put(raw_method, new CreateSqlObjectHandler(raw_method.getReturnType()));
+            else if(rawMethod.isAnnotationPresent(CreateSqlObject.class)) {
+                handler = new CreateSqlObjectHandler(rawMethod.getReturnType());
             }
             else if (method.getName().equals("close") && method.getRawMember().getParameterTypes().length == 0) {
-                handlers.put(raw_method, new CloseHandler());
+                handler = new CloseHandler();
             }
             else if (method.getName().equals("finalize") && method.getRawMember().getParameterTypes().length == 0) {
                 // no handler for finalize()
+                continue;
             }
-            else if (raw_method.isAnnotationPresent(Transaction.class)) {
-                handlers.put(raw_method, new PassThroughTransactionHandler(sqlObjectType, raw_method, raw_method.getAnnotation(Transaction.class)));
+            else if (rawMethod.isAnnotationPresent(Transaction.class)) {
+                handler = new PassThroughTransactionHandler(rawMethod, rawMethod.getAnnotation(Transaction.class));
             }
-            else if (mixinHandlers.containsKey(raw_method)) {
-                handlers.put(raw_method, mixinHandlers.get(raw_method));
+            else if (mixinHandlers.containsKey(rawMethod)) {
+                handler = mixinHandlers.get(rawMethod);
             }
-            else {
-                handlers.put(raw_method, new PassThroughHandler(sqlObjectType, raw_method));
-            }
+
+            handler = new ContextualHandler(sqlObjectType, rawMethod, handler);
+
+            handlers.put(rawMethod, handler);
         }
 
         // this is an implicit mixin, not an explicit one, so we need to *always* add it
@@ -189,7 +194,6 @@ class SqlObject
 
         return handlers;
     }
-
 
     private final Map<Method, Handler> handlers;
     private final HandleDing           ding;
