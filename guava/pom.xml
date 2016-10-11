@@ -24,6 +24,11 @@
     <artifactId>jdbi3-guava</artifactId>
     <name>jdbi Guava Integration</name>
 
+    <properties>
+      <!-- XXX: https://github.com/joel-costigliola/assertj-guava/issues/33 -->
+      <basepom.check.fail-dependency-versions-check>false</basepom.check.fail-dependency-versions-check>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.jdbi</groupId>
